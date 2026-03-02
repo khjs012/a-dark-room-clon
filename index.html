@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小黑屋：文明扩张 (A Dark Room Clone)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Courier Prime', monospace;
+            background-color: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* 游戏整体布局 */
+        .game-container {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            height: 100vh;
+            gap: 1px;
+            background-color: #222;
+        }
+
+        .panel {
+            background-color: #0a0a0a;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        /* 日志面板：新消息在顶部出现 */
+        .log-panel {
+            display: flex;
+            flex-direction: column-reverse;
+            background: #050505;
+        }
+
+        .stats-panel { border-right: 1px solid #222; }
+        .actions-panel { border-left: 1px solid #222; }
+
+        /* 选项卡按钮样式 */
+        .tab-btn {
+            display: inline-block;
+            width: auto;
+            margin-right: 10px;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            padding: 8px;
+            transition: all 0.2s;
+        }
+        .tab-btn.active {
+            border-bottom: 2px solid #fbbf24;
+            color: #fbbf24;
+        }
+
+        /* 通用按钮样式 */
+        button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: none;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 10px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Courier Prime', monospace;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #e0e0e0;
+            color: #000;
+        }
+
+        button:disabled {
+            color: #444;
+            border-color: #222;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .resource-item {
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.95rem;
+        }
+
+        .log-entry {
+            margin-bottom: 12px;
+            line-height: 1.4;
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        .worker-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        .btn-small {
+            width: auto;
+            display: inline-block;
+            padding: 2px 8px;
+            margin: 0;
+        }
+
+        .hidden { display: none; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 状态颜色 */
+        .highlight { color: #fbbf24; }
+        .danger { color: #f87171; }
+        .info { color: #60a5fa; }
+
+        /* 响应式调整 */
+        @media (max-width: 1024px) {
+            .game-container {
+                grid-template-columns: 200px 1fr 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <!-- 左侧：资源与人口统计 -->
+        <div class="panel stats-panel">
+            <h2 class="text-xl font-bold mb-6 border-b border-gray-700 pb-2 text-gray-400">存储</h2>
+            <div id="resources">
+                <div class="resource-item" id="res-wood"><span>木头</span><span id="count-wood">0</span></div>
+                <div class="resource-item" id="res-fur"><span>皮毛</span><span id="count-fur">0</span></div>
+                <div class="resource-item" id="res-meat"><span>肉</span><span id="count-meat">0</span></div>
+                <div class="resource-item hidden" id="res-iron"><span>铁矿</span><span id="count-iron">0</span></div>
+                <div class="resource-item hidden" id="res-sword"><span>铁剑</span><span id="count-sword">0</span></div>
+            </div>
+
+            <h2 class="text-xl font-bold mt-10 mb-6 border-b border-gray-700 pb-2 text-gray-400">人口</h2>
+            <div id="population-stats">
+                <div class="resource-item"><span>总人口</span><span id="pop-total">0</span></div>
+                <div class="resource-item"><span>无业者</span><span id="pop-idle">0</span></div>
+                
+                <div class="mt-6 space-y-6">
+                    <!-- 伐木工岗位 -->
+                    <div id="job-gatherer" class="hidden">
+                        <div class="text-sm flex justify-between">
+                            <span>伐木工</span>
+                            <span class="text-gray-500 text-xs">+0.5 木头/s</span>
+                        </div>
+                        <div class="worker-control">
+                            <button class="btn-small" onclick="assignJob('gatherer', -1)">-</button>
+                            <span id="count-gatherer" class="font-bold">0</span>
+                            <button class="btn-small" onclick="assignJob('gatherer', 1)">+</button>
+                        </div>
+                    </div>
+                    <!-- 猎人岗位 -->
+                    <div id="job-hunter" class="hidden">
+                        <div class="text-sm flex justify-between">
+                            <span>猎人</span>
+                            <span class="text-gray-500 text-xs">+0.2 皮/肉/s</span>
+                        </div>
+                        <div class="worker-control">
+                            <button class="btn-small" onclick="assignJob('hunter', -1)">-</button>
+                            <span id="count-hunter" class="font-bold">0</span>
+                            <button class="btn-small" onclick="assignJob('hunter', 1)">+</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中间：日志输出与场景切换 -->
+        <div class="panel flex flex-col">
+            <div class="mb-4 flex border-b border-gray-800">
+                <div class="tab-btn active" id="tab-room" onclick="switchTab('room')">房间</div>
+                <div class="tab-btn hidden" id="tab-map" onclick="switchTab('map')">探索</div>
+            </div>
+            
+            <div id="log" class="log-panel flex-1">
+                <div class="log-entry">房间很冷。</div>
+            </div>
+        </div>
+
+        <!-- 右侧：行动、建筑与制造 -->
+        <div class="panel actions-panel">
+            <!-- 房间视图 -->
+            <div id="view-room">
+                <h2 class="text-xl font-bold mb-6 border-b border-gray-700 pb-2 text-gray-400">行动</h2>
+                <button id="btn-stoke" onclick="stokeFire()">点燃火堆</button>
+                <button id="btn-gather" class="hidden" onclick="manualGather()">采集木头</button>
+
+                <h2 id="title-build" class="text-xl font-bold mt-10 mb-6 border-b border-gray-700 pb-2 text-gray-400 hidden">建筑与制造</h2>
+                <div id="build-actions">
+                    <button id="btn-build-hut" class="hidden" onclick="build('hut')">
+                        简陋小屋 (<span id="cost-hut">10</span> 木头)
+                        <div class="text-xs text-gray-500 mt-1">吸引更多流浪者</div>
+                    </button>
+                    <button id="btn-build-trap" class="hidden" onclick="build('trap')">
+                        陷阱 (5 木头)
+                        <div class="text-xs text-gray-500 mt-1">自动缓慢收集皮毛</div>
+                    </button>
+                    <button id="btn-craft-compass" class="hidden" onclick="craft('compass')">
+                        指南针 (100 木头, 20 皮毛)
+                        <div class="text-xs text-gray-500 mt-1">解锁大地图探索</div>
+                    </button>
+                    <button id="btn-trade-iron" class="hidden" onclick="trade('iron')">
+                        贸易：铁矿 (50 皮毛)
+                        <div class="text-xs text-gray-500 mt-1">从路过的商人手中购买</div>
+                    </button>
+                    <button id="btn-craft-sword" class="hidden" onclick="craft('sword')">
+                        铁剑 (20 铁矿, 10 木头)
+                        <div class="text-xs text-gray-500 mt-1">增加探险队生还率</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 探索视图 -->
+            <div id="view-map" class="hidden">
+                <h2 class="text-xl font-bold mb-6 border-b border-gray-700 pb-2 text-gray-400">大地图</h2>
+                <p class="text-sm text-gray-500 mb-6 italic">派遣探险队发现新的资源和地点。荒野充满了危险。</p>
+                <button id="btn-explore" onclick="explore()">
+                    派遣探险队 (消耗 20 肉)
+                </button>
+                
+                <div id="location-list" class="mt-8 space-y-4">
+                    <div class="text-xs uppercase tracking-widest text-gray-600 border-b border-gray-900 pb-1">已发现地点</div>
+                    <div class="text-sm text-gray-400">· 尘土飞扬的路径</div>
+                    <div id="discovered-mine" class="text-sm text-gray-400 hidden">· 废弃的矿井</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 游戏状态 (Game State) ---
+        const state = {
+            wood: 0, fur: 0, meat: 0, iron: 0, sword: 0,
+            pop: 0, idle: 0,
+            jobs: { gatherer: 0, hunter: 0 },
+            buildings: { hut: 0, trap: 0 },
+            items: { compass: false },
+            fire: 0, isLit: false,
+            unlocks: new Set(),
+            lastUpdate: Date.now(),
+            currentTab: 'room'
+        };
+
+        // --- 辅助功能 ---
+        function addLog(text, type = '') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = text;
+            const logBox = document.getElementById('log');
+            logBox.prepend(entry);
+        }
+
+        function switchTab(tab) {
+            state.currentTab = tab;
+            document.getElementById('view-room').classList.toggle('hidden', tab !== 'room');
+            document.getElementById('view-map').classList.toggle('hidden', tab !== 'map');
+            document.getElementById('tab-room').classList.toggle('active', tab === 'room');
+            document.getElementById('tab-map').classList.toggle('active', tab === 'map');
+        }
+
+        // --- 核心行动 ---
+        function stokeFire() {
+            if (!state.isLit) {
+                state.isLit = true;
+                state.fire = 50;
+                addLog("火烧起来了。");
+                unlock('gather');
+            } else {
+                if (state.wood >= 1) {
+                    state.wood--;
+                    state.fire += 30;
+                    addLog("火更旺了。");
+                } else {
+                    addLog("没有木头了。");
+                }
+            }
+        }
+
+        function manualGather() {
+            const btn = document.getElementById('btn-gather');
+            btn.disabled = true;
+            addLog("在附近的林子里寻找...");
+            setTimeout(() => {
+                state.wood += 2;
+                btn.disabled = false;
+                if (state.wood >= 5) unlock('build');
+                updateUI();
+            }, 1000);
+        }
+
+        function build(type) {
+            let costWood = type === 'hut' ? (10 + state.buildings.hut * 5) : 5;
+            if (state.wood >= costWood) {
+                state.wood -= costWood;
+                state.buildings[type]++;
+                addLog(`建造了 ${type === 'hut' ? '简陋小屋' : '陷阱'}。`);
+                if (type === 'hut') unlock('jobs');
+                updateUI();
+            } else {
+                addLog("资源不足。", "danger");
+            }
+        }
+
+        function craft(item) {
+            if (item === 'compass' && state.wood >= 100 && state.fur >= 20) {
+                state.wood -= 100; state.fur -= 20;
+                state.items.compass = true;
+                addLog("指南针做好了，它指向远方的荒野。", "highlight");
+                unlock('map');
+                document.getElementById('btn-craft-compass').classList.add('hidden');
+            } else if (item === 'sword' && state.iron >= 20 && state.wood >= 10) {
+                state.iron -= 20; state.wood -= 10;
+                state.sword++;
+                document.getElementById('res-sword').classList.remove('hidden');
+                addLog("锻造了一把铁剑。防卫能力提升。", "info");
+            } else {
+                addLog("制造所需的材料不足。", "danger");
+            }
+        }
+
+        function trade(type) {
+            if (type === 'iron' && state.fur >= 50) {
+                state.fur -= 50;
+                state.iron += 10;
+                document.getElementById('res-iron').classList.remove('hidden');
+                addLog("从流浪贸易商那里换来了铁矿石。");
+                unlock('sword');
+            } else {
+                addLog("皮毛不够，贸易商拒绝了你。", "danger");
+            }
+        }
+
+        function explore() {
+            if (state.meat < 20) {
+                addLog("没有足够的肉作为补给。", "danger");
+                return;
+            }
+            state.meat -= 20;
+            const btn = document.getElementById('btn-explore');
+            btn.disabled = true;
+            addLog("探险队出发了...");
+
+            setTimeout(() => {
+                // 如果有铁剑，失败率降低
+                const failChance = state.sword > 0 ? 0.2 : 0.5;
+                const success = Math.random() > failChance;
+                
+                if (success) {
+                    const foundIron = Math.floor(Math.random() * 8) + 2;
+                    const foundFur = Math.floor(Math.random() * 15) + 5;
+                    state.iron += foundIron;
+                    state.fur += foundFur;
+                    addLog(`探险队归来。带回了 ${foundIron} 铁矿和 ${foundFur} 皮毛。`, "highlight");
+                    
+                    if (Math.random() > 0.8) {
+                        document.getElementById('discovered-mine').classList.remove('hidden');
+                        addLog("探险队发现了一座废弃矿井。", "info");
+                    }
+                } else {
+                    addLog("探险队在荒野遭遇袭击，损失了所有物资并狼狈撤回。", "danger");
+                }
+                
+                btn.disabled = false;
+                if (state.iron > 0) document.getElementById('res-iron').classList.remove('hidden');
+                updateUI();
+            }, 3000);
+        }
+
+        function assignJob(job, delta) {
+            if (delta > 0 && state.idle > 0) {
+                state.idle--; state.jobs[job]++;
+            } else if (delta < 0 && state.jobs[job] > 0) {
+                state.idle++; state.jobs[job]--;
+            }
+            updateUI();
+        }
+
+        // --- 解锁系统 ---
+        function unlock(id) {
+            if (state.unlocks.has(id)) return;
+            state.unlocks.add(id);
+            
+            if (id === 'gather') document.getElementById('btn-gather').classList.remove('hidden');
+            if (id === 'build') {
+                document.getElementById('title-build').classList.remove('hidden');
+                document.getElementById('btn-build-hut').classList.remove('hidden');
+                document.getElementById('btn-build-trap').classList.remove('hidden');
+            }
+            if (id === 'jobs') {
+                document.getElementById('job-gatherer').classList.remove('hidden');
+                document.getElementById('job-hunter').classList.remove('hidden');
+            }
+            if (id === 'compass') document.getElementById('btn-craft-compass').classList.remove('hidden');
+            if (id === 'map') document.getElementById('tab-map').classList.remove('hidden');
+            if (id === 'sword') document.getElementById('btn-craft-sword').classList.remove('hidden');
+        }
+
+        // --- UI 更新 ---
+        function updateUI() {
+            document.getElementById('count-wood').textContent = Math.floor(state.wood);
+            document.getElementById('count-fur').textContent = Math.floor(state.fur);
+            document.getElementById('count-meat').textContent = Math.floor(state.meat);
+            document.getElementById('count-iron').textContent = Math.floor(state.iron);
+            document.getElementById('count-sword').textContent = state.sword;
+            
+            document.getElementById('pop-total').textContent = state.pop;
+            document.getElementById('pop-idle').textContent = state.idle;
+            document.getElementById('count-gatherer').textContent = state.jobs.gatherer;
+            document.getElementById('count-hunter').textContent = state.jobs.hunter;
+            
+            const hutCost = 10 + state.buildings.hut * 5;
+            document.getElementById('cost-hut').textContent = hutCost;
+
+            const stokeBtn = document.getElementById('btn-stoke');
+            if (state.fire <= 0) {
+                stokeBtn.textContent = "火熄灭了。重新点燃";
+                stokeBtn.classList.add('danger');
+            } else {
+                stokeBtn.classList.remove('danger');
+                if (state.fire < 20) stokeBtn.textContent = "火堆微弱 (添柴)";
+                else stokeBtn.textContent = "添柴";
+            }
+
+            // 动态解锁贸易
+            if (state.fur >= 30) document.getElementById('btn-trade-iron').classList.remove('hidden');
+            // 动态解锁指南针制作
+            if (state.wood >= 50 && state.fur >= 15 && !state.items.compass) unlock('compass');
+        }
+
+        // --- 游戏主循环 (Game Loop) ---
+        function gameLoop() {
+            const now = Date.now();
+            const dt = (now - state.lastUpdate) / 1000;
+            state.lastUpdate = now;
+
+            // 火堆逻辑
+            if (state.isLit) {
+                state.fire -= 1.2 * dt;
+                if (state.fire <= 0) {
+                    state.fire = 0;
+                    state.isLit = false;
+                    addLog("火熄灭了。寒冷再次笼罩房间。", "danger");
+                }
+            }
+
+            // 自动资源产出
+            state.wood += state.jobs.gatherer * 0.5 * dt;
+            state.fur += (state.jobs.hunter * 0.2 + state.buildings.trap * 0.1) * dt;
+            state.meat += state.jobs.hunter * 0.2 * dt;
+
+            // 人口增长 (仅当有空余住房时)
+            const housingLimit = state.buildings.hut * 2;
+            if (state.pop < housingLimit) {
+                if (Math.random() < 0.005) {
+                    state.pop++;
+                    state.idle++;
+                    addLog("一个疲惫的流劳者被火光吸引而来。", "highlight");
+                }
+            }
+
+            // 消耗逻辑：村民吃肉
+            if (state.pop > 0) {
+                const consumption = state.pop * 0.12 * dt;
+                if (state.meat >= consumption) {
+                    state.meat -= consumption;
+                } else {
+                    // 饥饿惩罚
+                    if (Math.random() < 0.01) {
+                        state.pop--;
+                        if (state.idle > 0) state.idle--;
+                        else if (state.jobs.gatherer > 0) state.jobs.gatherer--;
+                        else if (state.jobs.hunter > 0) state.jobs.hunter--;
+                        addLog("一个村民因为饥饿离开了。", "danger");
+                    }
+                }
+            }
+
+            updateUI();
+        }
+
+        // 启动游戏循环
+        setInterval(gameLoop, 100);
+    </script>
+</body>
+</html>
